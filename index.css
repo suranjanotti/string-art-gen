@@ -78,6 +78,16 @@ canvas {
     width: 100%;
 }
 
+.slider-number {
+    background: #141414;
+    color: #fefff5;
+    border: 1px solid cyan;
+    font-family: inherit;
+    font-size: 0.9em;
+    padding: 2px 4px;
+    width: 5em;
+}
+
 .text_entry {
     min-height: 20px;
     overflow: wrap;

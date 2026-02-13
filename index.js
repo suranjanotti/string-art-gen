@@ -43,8 +43,8 @@ class Line {
     constructor(start, end) {
         this.start = start;
         this.end = end;
-        this.start_adj = graph.img.get_image_point(this.start, graph.frame_bb);
-        this.end_adj = graph.img.get_image_point(this.end, graph.frame_bb);
+        this.start_adj = graph.image.get_image_point(this.start, graph.frame_bb);
+        this.end_adj = graph.image.get_image_point(this.end, graph.frame_bb);
         this.pixels = [];
         this.fuzz_rad = 0;
         this.compute_pixel_overlap();
@@ -94,7 +94,7 @@ class Line {
 
         for (var i = 0; i < this.pixels.length; i++) {
             let p = this.pixels[i];
-            let ind = (p.x + p.y * graph.img.width) * 4;
+            let ind = (p.x + p.y * graph.image.width) * 4;
             let pixel_diff = 0;
             for (var j = 0; j < 4; j++) {
                 let new_c = color_arr[j] * this.fade + graph.current_ctx_data[ind + j] * (1 - this.fade);
@@ -113,7 +113,7 @@ class Line {
 
     add_to_buffer(color) {
         this.draw(graph.current_ctx, color);
-        graph.current_ctx_data = graph.current_ctx.getImageData(0, 0, graph.img.width, graph.img.height).data;
+        graph.current_ctx_data = graph.current_ctx.getImageData(0, 0, graph.image.width, graph.image.height).data;
     }
 }
 
@@ -204,7 +204,7 @@ let graph = {
 
         this.downscale_factor = 4;
 
-        this.thread_diam = 0.01; // thread width in inches
+        this.thread_diam = 0.004; // thread width in inches (60WT)
         this.nail_diam = 0.1;
         this.nails_pos = [];
 
@@ -359,7 +359,7 @@ let graph = {
 
     setup(img) {
         this.render_iter = 0;
-        this.img = img;
+        this.image = img;
         this.orig_ctx = img.ctx;
         let scratch_canvas = document.createElement("canvas");
         scratch_canvas.width = img.width;
@@ -370,14 +370,11 @@ let graph = {
         this.scratch_ctx = scratch_canvas.getContext('2d');
         this.current_ctx = current_canvas.getContext('2d', { willReadFrequently: true });
         this.current_ctx.fillStyle = "grey";
-        this.current_ctx.fillRect(0, 0, this.img.width, this.img.height);
-        this.orig_ctx_data = this.orig_ctx.getImageData(0, 0, this.img.width, this.img.height).data;
-        this.current_ctx_data = this.current_ctx.getImageData(0, 0, this.img.width, this.img.height).data;
+        this.current_ctx.fillRect(0, 0, this.image.width, this.image.height);
+        this.orig_ctx_data = this.orig_ctx.getImageData(0, 0, this.image.width, this.image.height).data;
+        this.current_ctx_data = this.current_ctx.getImageData(0, 0, this.image.width, this.image.height).data;
 
         this.threads = [
-            new Thread(0, new Color(0, 255, 255, 255)), // C
-            new Thread(0, new Color(255, 0, 255, 255)), // Y
-            new Thread(0, new Color(255, 255, 0, 255)), // M
             new Thread(0, new Color(0, 0, 0, 255)), // black
             new Thread(0, new Color(255, 255, 255, 255)) // white
         ];
@@ -458,8 +455,12 @@ class Slider extends UIElement {
         this.val = init_val;
         this.min = min;
         this.max = max;
-        this.disp = document.createElement("p");
-        this.disp.innerHTML = this.val;
+        this.disp = document.createElement("input");
+        this.disp.type = "number";
+        this.disp.min = min;
+        this.disp.max = max;
+        this.disp.value = this.val;
+        this.disp.classList.add("slider-number");
         parent.appendChild(this.disp);
         this.element = document.createElement("input");
         this.element.id = name;
@@ -468,7 +469,13 @@ class Slider extends UIElement {
         this.element.min = min;
         this.element.max = max;
         this.element.value = this.val;
-        this.element.addEventListener("input", (e) => { callback(e); this.disp.innerHTML = e.target.value; });
+        this.element.addEventListener("input", (e) => { this.disp.value = e.target.value; callback(e); });
+        this.disp.addEventListener("change", (e) => {
+            let v = constrain(parseInt(e.target.value), min, max);
+            e.target.value = v;
+            this.element.value = v;
+            callback({ target: this.element });
+        });
         parent.appendChild(this.element);
     }
 }
@@ -539,7 +546,7 @@ let GUI = {
             "num_connections",
             basic_options,
             10000,
-            100, 15000,
+            100, 30000,
             (e) => {
                 graph.max_iter = e.target.value;
                 render_image();
@@ -571,14 +578,8 @@ function render_image(url) {
     }
     graph.init();
     var img = document.getElementById('snapshot');
-    img.onload = () => {
-        if (url) URL.revokeObjectURL(img.src);
-    }
-    if (url)
-        img.src = url;
-    else
-        img.src = img.src;
     img.onload = function () {
+        if (url) URL.revokeObjectURL(this.src);
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
 
@@ -597,11 +598,18 @@ function render_image(url) {
         graph.setup(new_img);
         graph.parse_image();
     }
+    if (url) {
+        img.src = url;
+    } else if (img.complete) {
+        img.onload();
+    } else {
+        img.src = img.src;
+    }
 }
 
 render_image();
 
-const input = document.querySelector("input");
+const input = document.querySelector("input[type='file']");
 input.addEventListener("change", function () {
     if (this.files && this.files[0]) {
         render_image(URL.createObjectURL(this.files[0]));
