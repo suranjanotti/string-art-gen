@@ -39,158 +39,6 @@ class Image {
     };
 }
 
-class Line {
-    constructor(start, end) {
-        this.start = start;
-        this.end = end;
-        this.start_adj = graph.image.get_image_point(this.start, graph.frame_bb);
-        this.end_adj = graph.image.get_image_point(this.end, graph.frame_bb);
-        this.pixels = [];
-        this.fuzz_rad = 0;
-        this.compute_pixel_overlap();
-
-        this.fade = 1 / (graph.downscale_factor * 1.8);
-    };
-
-    draw(ctx, color) {
-        ctx.beginPath();
-        ctx.moveTo(this.start_adj.x, this.start_adj.y);
-        ctx.lineTo(this.end_adj.x, this.end_adj.y);
-        ctx.lineWidth = 1;
-        ctx.strokeStyle = `rgba(${color.r}, ${color.g}, ${color.b}, ${this.fade})`;
-        ctx.stroke();
-    }
-
-    compute_pixel_overlap() {
-        this.pixels = [];
-        // Bresenham algorithm taken from https://stackoverflow.com/a/4672319
-        var start_point = this.start_adj;
-        var end_point = this.end_adj;
-        var x0 = start_point.x;
-        var x1 = end_point.x;
-        var y0 = start_point.y;
-        var y1 = end_point.y;
-        var dx = Math.abs(x1 - x0);
-        var dy = Math.abs(y1 - y0);
-        var sx = (x0 < x1) ? 1 : -1;
-        var sy = (y0 < y1) ? 1 : -1;
-        var err = dx - dy;
-
-        let current_point;
-        while (true) {
-            current_point = new Point(x0, y0);
-            this.pixels.push(current_point);
-
-            if ((x0 === x1) && (y0 === y1)) break;
-            var e2 = 2 * err;
-            if (e2 > -dy) { err -= dy; x0 += sx; }
-            if (e2 < dx) { err += dx; y0 += sy; }
-        }
-    };
-
-    get_line_diff(color) {
-        let color_arr = [color.r, color.g, color.b, color.a];
-        let total_diff = 0;
-
-        for (var i = 0; i < this.pixels.length; i++) {
-            let p = this.pixels[i];
-            let ind = (p.x + p.y * graph.image.width) * 4;
-            let pixel_diff = 0;
-            for (var j = 0; j < 4; j++) {
-                let new_c = color_arr[j] * this.fade + graph.current_ctx_data[ind + j] * (1 - this.fade);
-                let diff = Math.abs(graph.orig_ctx_data[ind + j] - new_c) - Math.abs(graph.current_ctx_data[ind + j] - graph.orig_ctx_data[ind + j]);
-                pixel_diff += diff;
-            }
-            if (pixel_diff < 0) {
-                total_diff += pixel_diff;
-            }
-            if (pixel_diff > 0) {
-                total_diff += pixel_diff / 5;
-            }
-        }
-        return Math.pow(total_diff / this.pixels.length, 3);
-    }
-
-    add_to_buffer(color) {
-        this.draw(graph.current_ctx, color);
-        graph.current_ctx_data = graph.current_ctx.getImageData(0, 0, graph.image.width, graph.image.height).data;
-    }
-}
-
-class Thread {
-    constructor(start_nail, color) {
-        this.current_nail = start_nail;
-        this.color = color;
-        this.current_dist = Infinity;
-        this.nail_order = [start_nail];
-        this.next_weight = -Infinity;
-        this.next_nail;
-        this.next_valid = false;
-        this.next_line;
-
-        this.read_head = 0;
-
-        this.prev_connections = [];
-    }
-
-    get_next_nail_weight(image) {
-        if (this.next_valid) {
-            return this.next_dist;
-        }
-        let chords = graph.get_connections(this.current_nail, image);
-        let min_dist = Infinity;
-        let min_dist_index = Math.floor(Math.random() * graph.nail_num);
-        chords.forEach((line, i) => {
-            if (line) {
-                let dist = line.get_line_diff(this.color);
-                if (this.prev_connections[this.current_nail] && this.prev_connections[this.current_nail][i] === true) {
-                    dist = 0;
-                }
-                if (dist < min_dist) {
-                    min_dist = dist;
-                    min_dist_index = i;
-                }
-            }
-        });
-        if (min_dist >= 0) {
-            min_dist = Infinity;
-        }
-
-        this.next_dist = min_dist;
-        this.next_nail = min_dist_index;
-        this.next_line = chords[min_dist_index];
-        this.next_valid = true;
-        return min_dist;
-    }
-
-    move_to_next_nail(image) {
-        if (!this.next_valid) {
-            this.get_next_nail_weight(image);
-        }
-        if (!this.prev_connections[this.current_nail])
-            this.prev_connections[this.current_nail] = [];
-        this.prev_connections[this.current_nail][this.next_nail] = true;
-        this.next_line.add_to_buffer(this.color);
-        this.current_nail = this.next_nail;
-        this.nail_order.push(this.current_nail);
-        this.next_valid = false;
-        this.current_dist = this.next_dist;
-        this.get_next_nail_weight(image);
-    }
-
-    get_next_nail_num() {
-        let nail = this.nail_order[this.read_head];
-        this.read_head++;
-        return nail;
-    }
-
-    get_current_line() {
-        let start = graph.nails_pos[this.nail_order[this.nail_order.length - 1]];
-        let end = graph.nails_pos[this.nail_order[this.nail_order.length - 2]];
-        return [[start.x, start.y], [end.x, end.y]];
-    }
-}
-
 // Create the graph
 let graph = {
     init() {
@@ -199,8 +47,8 @@ let graph = {
         this.width = 30;
         this.height = this.width;
         this.radius = this.width / 3;
-        this.max_iter = GUI.num_connections.element.value;
-        this.num_nails = GUI.num_nails.element.value;
+        this.max_iter = parseInt(GUI.num_connections.element.value);
+        this.num_nails = parseInt(GUI.num_nails.element.value);
 
         this.downscale_factor = 4;
 
@@ -208,10 +56,12 @@ let graph = {
         this.nail_diam = 0.1;
         this.nails_pos = [];
 
-        this.line_cache = {};
-
         this.thread_opacity = 1.0;
         this.thread_order = [];
+
+        // Worker pool
+        this.workers = [];
+        this.abortController = null;
 
         this.svg = d3.select("body").insert("svg", ":first-child")
             .attr("width", "100vw")
@@ -225,18 +75,6 @@ let graph = {
             .style("stroke", "#ffbe5700")
             .style("stroke-width", 10)
             .style("fill", "none");
-
-        // let frame_path = this.svg.append("g")
-        //     .lower()
-        //     .append("rect")
-        //     .attr("class", "frame")
-        //     .attr("height", 19.25)
-        //     .attr("width", 15.25)
-        //     .attr("x", -this.radius)
-        //     .attr("y", -this.radius)
-        //     .style("stroke", "#ffbe5700")
-        //     .style("stroke-width", 0.5)
-        //     .style("fill", "none");
 
         this.frame_bb = frame_path.node().getBBox();
 
@@ -319,11 +157,12 @@ let graph = {
             if (i === 0 || this.thread_order[i - 1] !== this.thread_order[i])
                 output += `\nThread: [${thread.color.r}, ${thread.color.g}, ${thread.color.b}]\n`;
 
-            output += thread.get_next_nail_num();
+            output += thread.nail_order[thread.read_head];
+            thread.read_head++;
             output += "\n";
         }
         for (var i = 0; i < this.threads.length; i++) {
-            this.threads.read_head = 0;
+            this.threads[i].read_head = 0;
         }
         var url = "data:text/plain;charset=utf-8," + encodeURIComponent(output);
         var element = document.createElement('a');
@@ -333,50 +172,39 @@ let graph = {
         document.body.appendChild(element);
         element.click();
         document.body.removeChild(element);
-
-    },
-    // Returns lines connecting the given nail to all other nails
-    get_connections(nail_num) {
-        let ret = [];
-        let src = this.nails_pos[nail_num];
-        for (var i = 0; i < this.num_nails; i++) {
-            if (i === nail_num) {
-                ret[i] = null;
-                continue;
-            };
-            let cache = this.line_cache[`${Math.min(i, nail_num)}| ${Math.max(i, nail_num)} `];
-            if (cache) {
-                ret[i] = cache;
-                continue;
-            }
-            let dst = this.nails_pos[i];
-            let line = new Line(src, dst);
-            ret[i] = line;
-            this.line_cache[`${Math.min(i, nail_num)}| ${Math.max(i, nail_num)} `] = line;
-        }
-        return ret;
     },
 
     setup(img) {
         this.render_iter = 0;
         this.image = img;
         this.orig_ctx = img.ctx;
-        let scratch_canvas = document.createElement("canvas");
-        scratch_canvas.width = img.width;
-        scratch_canvas.height = img.height;
+
+        // Get original image pixel data
+        this.orig_ctx_data = this.orig_ctx.getImageData(0, 0, this.image.width, this.image.height).data;
+
+        // Create a writable current buffer initialized to grey
         let current_canvas = document.createElement("canvas");
         current_canvas.width = img.width;
         current_canvas.height = img.height;
-        this.scratch_ctx = scratch_canvas.getContext('2d');
-        this.current_ctx = current_canvas.getContext('2d', { willReadFrequently: true });
-        this.current_ctx.fillStyle = "grey";
-        this.current_ctx.fillRect(0, 0, this.image.width, this.image.height);
-        this.orig_ctx_data = this.orig_ctx.getImageData(0, 0, this.image.width, this.image.height).data;
-        this.current_ctx_data = this.current_ctx.getImageData(0, 0, this.image.width, this.image.height).data;
+        let current_ctx = current_canvas.getContext('2d');
+        current_ctx.fillStyle = "grey";
+        current_ctx.fillRect(0, 0, this.image.width, this.image.height);
+        const initialData = current_ctx.getImageData(0, 0, this.image.width, this.image.height).data;
+        this.current_ctx_data = new Uint8ClampedArray(initialData);
+
+        this.fade = 1 / (this.downscale_factor * 1.8);
+
+        // Pre-compute adjusted nail positions as a flat Float64Array
+        this.nailsAdj = new Float64Array(this.num_nails * 2);
+        for (let i = 0; i < this.num_nails; i++) {
+            const adjPt = this.image.get_image_point(this.nails_pos[i], this.frame_bb);
+            this.nailsAdj[i * 2] = adjPt.x;
+            this.nailsAdj[i * 2 + 1] = adjPt.y;
+        }
 
         this.threads = [
-            new Thread(0, new Color(0, 0, 0, 255)), // black
-            new Thread(0, new Color(255, 255, 255, 255)) // white
+            { current_nail: 0, color: new Color(0, 0, 0, 255), nail_order: [0], prev_connections: {}, read_head: 0 },       // black
+            { current_nail: 0, color: new Color(255, 255, 255, 255), nail_order: [0], prev_connections: {}, read_head: 0 }   // white
         ];
         this.svg.select("g")
             .selectAll(".string")
@@ -384,49 +212,211 @@ let graph = {
         this.thread_order = [];
     },
 
-    // Generates a nail and color order from pixel data
-    parse_image() {
-        if (this.render_iter >= this.max_iter) {
-            this.clean();
-            return;
+    terminateWorkers() {
+        this.workers.forEach(w => w.terminate());
+        this.workers = [];
+    },
+
+    async parse_image() {
+        // Cancel any previous run
+        if (this.abortController) {
+            this.abortController.abort();
         }
-        let min_thread;
-        let min_thread_index;
-        let min_thread_weight = Infinity;
-        for (var i = 0; i < this.threads.length; i++) {
-            let weight = this.threads[i].get_next_nail_weight(this.image);
-            if (weight <= min_thread_weight) {
-                min_thread_weight = weight;
-                min_thread_index = i;
-                min_thread = this.threads[i];
+        this.terminateWorkers();
+        this.abortController = new AbortController();
+        const signal = this.abortController.signal;
+
+        const NUM_WORKERS = Math.min(navigator.hardwareConcurrency || 4, 8);
+
+        // Create workers
+        for (let i = 0; i < NUM_WORKERS; i++) {
+            this.workers.push(new Worker('./worker.js'));
+        }
+
+        // Initialize all workers with data
+        await Promise.all(this.workers.map(w => new Promise(resolve => {
+            const handler = (e) => {
+                if (e.data.type === 'init-done') {
+                    w.removeEventListener('message', handler);
+                    resolve();
+                }
+            };
+            w.addEventListener('message', handler);
+            w.postMessage({
+                type: 'init',
+                origData: this.orig_ctx_data.buffer.slice(0),
+                currentData: this.current_ctx_data.buffer.slice(0),
+                imageWidth: this.image.width,
+                imageHeight: this.image.height,
+                fade: this.fade,
+                nailsAdj: this.nailsAdj.buffer.slice(0),
+                numNails: this.num_nails
+            });
+        })));
+
+        if (signal.aborted) { this.terminateWorkers(); return; }
+
+        const SVG_BATCH_SIZE = 50;
+        const svgBatch = [];
+        const g = this.svg.select("g");
+
+        for (let iter = 0; iter < this.max_iter; iter++) {
+            if (signal.aborted) { this.terminateWorkers(); return; }
+
+            // Evaluate all threads across all workers in parallel
+            const nailsPerWorker = Math.ceil(this.num_nails / NUM_WORKERS);
+            const evalPromises = [];
+
+            for (let tIdx = 0; tIdx < this.threads.length; tIdx++) {
+                const thread = this.threads[tIdx];
+                for (let wIdx = 0; wIdx < NUM_WORKERS; wIdx++) {
+                    const nailStart = wIdx * nailsPerWorker;
+                    const nailEnd = Math.min(nailStart + nailsPerWorker, this.num_nails);
+                    evalPromises.push(new Promise(resolve => {
+                        const handler = (e) => {
+                            if (e.data.type === 'evaluate-result' &&
+                                e.data.requestId === tIdx) {
+                                this.workers[wIdx].removeEventListener('message', handler);
+                                resolve(e.data);
+                            }
+                        };
+                        this.workers[wIdx].addEventListener('message', handler);
+                        this.workers[wIdx].postMessage({
+                            type: 'evaluate',
+                            threadIndex: tIdx,
+                            currentNail: thread.current_nail,
+                            colorR: thread.color.r,
+                            colorG: thread.color.g,
+                            colorB: thread.color.b,
+                            colorA: thread.color.a,
+                            nailStart,
+                            nailEnd,
+                            requestId: tIdx
+                        });
+                    }));
+                }
+            }
+
+            const results = await Promise.all(evalPromises);
+
+            if (signal.aborted) { this.terminateWorkers(); return; }
+
+            // Find global best across all threads and all worker chunks
+            let winnerThreadIdx = -1;
+            let winnerNail = -1;
+            let winnerDist = Infinity;
+
+            for (const r of results) {
+                if (r.bestDist < winnerDist) {
+                    winnerDist = r.bestDist;
+                    winnerThreadIdx = r.threadIndex;
+                    winnerNail = r.bestNail;
+                }
+            }
+
+            if (winnerDist === Infinity) break; // No improvement possible
+
+            const winThread = this.threads[winnerThreadIdx];
+            const prevNail = winThread.current_nail;
+
+            // Record connection in main thread state
+            const connKey = prevNail;
+            if (!winThread.prev_connections[connKey])
+                winThread.prev_connections[connKey] = {};
+            winThread.prev_connections[connKey][winnerNail] = true;
+
+            // Update main thread pixel buffer (pure math, no canvas)
+            const pixels = bresenham(
+                this.nailsAdj[prevNail * 2], this.nailsAdj[prevNail * 2 + 1],
+                this.nailsAdj[winnerNail * 2], this.nailsAdj[winnerNail * 2 + 1]
+            );
+            applyLineToBuffer(
+                pixels, this.fade,
+                winThread.color.r, winThread.color.g, winThread.color.b, winThread.color.a,
+                this.current_ctx_data, this.image.width
+            );
+
+            // Tell all workers to apply the same buffer update and record the connection
+            const drawPromises = this.workers.map(w => new Promise(resolve => {
+                const handler = (e) => {
+                    if (e.data.type === 'draw-done') {
+                        w.removeEventListener('message', handler);
+                        resolve();
+                    }
+                };
+                w.addEventListener('message', handler);
+                w.postMessage({
+                    type: 'draw',
+                    nailA: prevNail,
+                    nailB: winnerNail,
+                    colorR: winThread.color.r,
+                    colorG: winThread.color.g,
+                    colorB: winThread.color.b,
+                    colorA: winThread.color.a
+                });
+            }));
+
+            // Send prev_connection update (fire-and-forget, no ack needed)
+            this.workers.forEach(w => {
+                w.postMessage({
+                    type: 'add-prev-connection',
+                    threadIndex: winnerThreadIdx,
+                    srcNail: prevNail,
+                    dstNail: winnerNail
+                });
+            });
+
+            await Promise.all(drawPromises);
+
+            // Update thread state
+            winThread.current_nail = winnerNail;
+            winThread.nail_order.push(winnerNail);
+            this.thread_order.push(winnerThreadIdx);
+            this.render_iter = iter + 1;
+
+            // Batch SVG rendering
+            const startPos = this.nails_pos[prevNail];
+            const endPos = this.nails_pos[winnerNail];
+            svgBatch.push({
+                points: [[startPos.x, startPos.y], [endPos.x, endPos.y]],
+                color: winThread.color
+            });
+
+            if (svgBatch.length >= SVG_BATCH_SIZE || iter === this.max_iter - 1) {
+                for (const item of svgBatch) {
+                    g.append('path')
+                        .attr("d", `M ${item.points[0][0]},${item.points[0][1]} L ${item.points[1][0]},${item.points[1][1]}`)
+                        .attr("class", "string")
+                        .style("stroke-width", this.thread_diam)
+                        .style("stroke", `rgba(${item.color.r},${item.color.g},${item.color.b},${this.thread_opacity})`)
+                        .style("fill", "none");
+                }
+                svgBatch.length = 0;
+
+                GUI.regenerate.element.innerHTML =
+                    `<b>Generating... ${((iter / this.max_iter) * 100).toFixed(2)}%</b>`;
+
+                // Yield to browser for UI rendering
+                await new Promise(r => setTimeout(r, 0));
             }
         }
-        if (min_thread_weight === Infinity) {
-            this.clean();
-            return;
-        }
-        GUI.regenerate.element.innerHTML = `<b>Generating... ${(((this.render_iter) / this.max_iter) * 100).toFixed(2)}</b>%`;
-        min_thread.move_to_next_nail(this.image);
-        this.thread_order.push(min_thread_index);
-        if (min_thread.nail_order.length > 1) {
-            var simpleLine = d3.line()
-            this.svg.select("g")
-                .append('path')
-                .attr("d", simpleLine(min_thread.get_current_line()))
+
+        // Flush any remaining SVG
+        for (const item of svgBatch) {
+            g.append('path')
+                .attr("d", `M ${item.points[0][0]},${item.points[0][1]} L ${item.points[1][0]},${item.points[1][1]}`)
                 .attr("class", "string")
                 .style("stroke-width", this.thread_diam)
-                .style("stroke", `rgba(${min_thread.color.r},${min_thread.color.g},${min_thread.color.b},${this.thread_opacity})`)
+                .style("stroke", `rgba(${item.color.r},${item.color.g},${item.color.b},${this.thread_opacity})`)
                 .style("fill", "none");
         }
 
-        this.render_iter++;
-        this.render_timeout_id = setTimeout(() => { this.parse_image() }, 0);
+        this.clean();
     },
 
     clean() {
         GUI.regenerate.element.innerHTML = "<b>Regenerate</b>";
-        clearTimeout(this.render_timeout_id);
-        console.log(this.threads);
+        this.terminateWorkers();
         this.svg.selectAll("g circle.nail").raise();
     }
 };
@@ -508,7 +498,7 @@ let controls = document.getElementById("controls");
 
 let GUI = {
     init() {
-        // Download = 
+        // Download =
         this.nail_seq_download = new Button(
             "Nail sequence",
             "nail_sequence",
@@ -538,7 +528,7 @@ let GUI = {
             300,
             10, 2000,
             (e) => {
-                graph.num_nails = e.target.value;
+                graph.num_nails = parseInt(e.target.value);
                 render_image();
             });
         this.num_connections = new Slider(
@@ -548,11 +538,11 @@ let GUI = {
             10000,
             100, 30000,
             (e) => {
-                graph.max_iter = e.target.value;
+                graph.max_iter = parseInt(e.target.value);
                 render_image();
             });
 
-        // Advanced 
+        // Advanced
         this.shape_entry = new TextEntry(
             "Frame path (SVG):",
             "num_connections",
@@ -574,7 +564,8 @@ function render_image(url) {
     if (graph.svg) {
         graph.svg.selectAll("*").remove();
         graph.svg.remove();
-        clearTimeout(graph.render_timeout_id);
+        if (graph.abortController) graph.abortController.abort();
+        graph.terminateWorkers();
     }
     graph.init();
     var img = document.getElementById('snapshot');
@@ -586,7 +577,6 @@ function render_image(url) {
         // Bunch of sloppy logic to resize the image / canvas to play nice with the frame bounding box.
         // The image is centered and scaled to fill the frame
         const max_res = ((graph.frame_bb.width / graph.thread_diam) / 2) / graph.downscale_factor;
-        //const max_res = 400;
         let frame_ar = graph.frame_bb.width / graph.frame_bb.height;
         let img_ar = img.width / img.height;
         canvas.width = frame_ar >= 1 ? max_res : max_res * frame_ar;
